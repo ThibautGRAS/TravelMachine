@@ -342,10 +342,22 @@ const D = {"public": true, "reflets": {"tv": {"uv": [[1, 1], [0, 1], [0, 0], [1,
   function basculerCasque() { initSon(); ctx.resume(); casque = !casque; const t = ctx.currentTime; gSalle.gain.setTargetAtTime(casque ? 0 : 1, t, .06); gCasque.gain.setTargetAtTime(casque ? .45 : 0, t, .06);
     dehorsBus.gain.setTargetAtTime(casque ? .3 : 1, t, .1); dehorsF.frequency.setTargetAtTime(casque ? 1500 : 18000, t, .1); $('casque').classList.toggle('actif', casque); }
   $('casque').onclick = basculerCasque;
-  function clac(marche) {          // bruit du bouton poussoir de la chaîne, joué dans la chambre comme le reste
-    const fe = ctx.sampleRate, n = Math.floor(fe*.09), b = ctx.createBuffer(1, n, fe), d = b.getChannelData(0), f0 = marche ? 210 : 160;
-    for (let i = 0; i < n; i++) { const t = i/fe; d[i] = (Math.random()*2-1)*Math.exp(-t/.0018)*.9 + Math.sin(2*Math.PI*f0*t)*Math.exp(-t/.018)*.5 + (t > .012 ? (Math.random()*2-1)*Math.exp(-(t-.012)/.0012)*.35 : 0); }
-    const s = ctx.createBufferSource(); s.buffer = b; const g = ctx.createGain(); g.gain.value = .5; s.connect(g).connect(chaine); s.start(); }
+  // Bruits des commandes, un par objet, synthétisés puis joués dans la chambre (un peu de son direct, un peu de salle).
+  //  lampe : interrupteur à bascule, deux déclics secs ; tv et pc : mise sous tension d'un tube cathodique (relais, bourdonnement de démagnétisation, grésillement de statique),
+  //  extinction : déclic, sifflement qui retombe, décharge ; chaîne : touche douce ; radiateur : tête de thermostat.
+  function clac(marche, quoi = 'chaine') { if (!ctx) return; const fe = ctx.sampleRate, n = Math.floor(fe*1.3), b = ctx.createBuffer(1, n, fe), d = b.getChannelData(0), al = () => Math.random()*2 - 1;
+    const tic = (t0, amp, f, tau, tb = .0012, bruit = .7) => { const i0 = Math.floor(t0*fe), m = Math.min(n - i0, Math.floor(fe*Math.max(tau, tb)*8)), ph = Math.random()*6; for (let j = 0; j < m; j++) { const t = j/fe; d[i0 + j] += amp*(al()*Math.exp(-t/tb)*bruit + Math.sin(2*Math.PI*f*t + ph)*Math.exp(-t/tau)*(1 - bruit*.4)); } };
+    const gresille = (t0, dur, amp) => { for (let k = 0, nb = Math.floor(dur*260); k < nb; k++) { const t = t0 + dur*Math.pow(Math.random(), 1.8), i = Math.floor(t*fe); if (i < n - 40) { const a = amp*Math.random()*Math.exp(-(t - t0)/(dur*.45)); for (let j = 0; j < 30; j++) d[i + j] += a*al()*Math.exp(-j/6); } } };
+    if (quoi === 'lampe') { tic(0, .75, 2500, .0035, .001); tic(.038 + Math.random()*.012, .5, 3300, .0028, .0009); tic(.0015, .25, 620, .012, .001, .2); }
+    else if (quoi === 'tv' || quoi === 'pc') { const k = quoi === 'tv' ? 1 : .6; tic(0, .8*k, 190, .022, .0015, .5); tic(.005, .45*k, 1600, .004);
+      if (marche) { for (let i = Math.floor(.05*fe); i < n; i++) { const t = i/fe - .05, env = Math.min(1, t/.02)*Math.exp(-t/(quoi === 'tv' ? .26 : .17))*(.75 + .25*Math.sin(2*Math.PI*11*t));
+            d[i] += .3*k*env*(Math.sin(2*Math.PI*100*t) + .6*Math.sin(2*Math.PI*200*t + 1) + .35*Math.sin(2*Math.PI*300*t + 2)) + .014*k*Math.min(1, t/.3)*Math.exp(-t/.5)*Math.sin(2*Math.PI*15625*t); }
+        gresille(.06, .55, .16*k); }
+      else { for (let i = 0; i < Math.floor(.3*fe); i++) { const t = i/fe, f = 15625*Math.exp(-t*7); d[i] += .035*k*Math.exp(-t/.09)*Math.sin(2*Math.PI*f*t); } gresille(.02, .32, .12*k); } }
+    else if (quoi === 'radiateur') { tic(0, .5, 1900, .003); tic(.004, .09, 2700, .07, .001, 0); }
+    else { tic(0, .5, 950, .006, .0012, .5); tic(.028, .26, 1350, .004, .001, .5); }
+    for (let j = 0, m = Math.floor(fe*.06); j < m; j++) d[n - 1 - j] *= j/m;
+    const s = ctx.createBufferSource(); s.buffer = b; const gn = ctx.createGain(); gn.gain.value = .55; s.connect(gn); gn.connect(chaine); const direct = ctx.createGain(); direct.gain.value = .45; gn.connect(direct).connect(dehorsBus); s.start(); }
   const majRadio = texte => { $('radio').classList.toggle('marche', radio); $('station').textContent = texte; $('suivante').style.display = $('volume').style.display = radio ? '' : 'none'; };
   const lancer = () => { radio = true; audio.src = STATIONS[numero][1]; majRadio('Connexion à ' + STATIONS[numero][0] + '…'); audio.play().catch(() => {}); };
   const arreter = () => { radio = false; audio.pause(); audio.removeAttribute('src'); audio.load(); majRadio(''); };
@@ -568,7 +580,7 @@ const D = {"public": true, "reflets": {"tv": {"uv": [[1, 1], [0, 1], [0, 0], [1,
     if (lam > .02) { const gr = cx.createRadialGradient(54 + dx, 34 + dy, 1, 54 + dx, 34 + dy, 17); gr.addColorStop(0, 'rgba(255,190,110,' + (.5*lam).toFixed(2) + ')'); gr.addColorStop(1, 'rgba(255,150,60,0)'); cx.fillStyle = gr; cx.fillRect(30 + dx, 12 + dy, 50, 46); }
     cx.filter = 'none'; const gs = cx.createLinearGradient(0, 0, 160, 120); gs.addColorStop(0, 'rgba(255,255,255,' + (.012 + .03*jour + .015*lam).toFixed(3) + ')'); gs.addColorStop(.6, 'rgba(255,255,255,0)'); cx.fillStyle = gs; cx.fillRect(0, 0, 160, 120);
     gl.bindTexture(gl.TEXTURE_2D, texX); gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, cvX); reglerTex(); }
-  $('zTV').onclick = () => { initSon(); ctx.resume(); clac(!tvAllumee); forceTV = !tvAllumee; };
+  $('zTV').onclick = () => { initSon(); ctx.resume(); clac(!tvAllumee, 'tv'); forceTV = !tvAllumee; };
   // ---- ordinateur : écran cathodique lui aussi. Allumé : une sélection parcourt la liste, le pointeur se déplace, voyant vert. Un clic l'éteint ou le rallume.
   const cvP = document.createElement('canvas'); cvP.width = 320; cvP.height = 240; const cp = cvP.getContext('2d'), texP = gl.createTexture();
   let forcePC = null, pcAllume = false, pcNiv = 1, tPC = -1, ligne = 3, ligneSuiv = 2; const ptr = { x: 200, y: 150, cx: 200, cy: 150 };
@@ -580,7 +592,7 @@ const D = {"public": true, "reflets": {"tv": {"uv": [[1, 1], [0, 1], [0, 0], [1,
     cp.fillStyle = 'rgba(255,255,255,.9)'; cp.beginPath(); cp.moveTo(ptr.x, ptr.y); cp.lineTo(ptr.x, ptr.y + 9); cp.lineTo(ptr.x + 2.4, ptr.y + 6.8); cp.lineTo(ptr.x + 6.4, ptr.y + 6.4); cp.fill();
     const yb = (tr*29 + 90) % 300 - 30, gb = cp.createLinearGradient(0, yb, 0, yb + 34); gb.addColorStop(0, 'rgba(255,255,255,0)'); gb.addColorStop(.5, 'rgba(255,255,255,.045)'); gb.addColorStop(1, 'rgba(255,255,255,0)'); cp.fillStyle = gb; cp.fillRect(0, yb, 320, 34);
     gl.bindTexture(gl.TEXTURE_2D, texP); gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, cvP); reglerTex(); }
-  $('zPC').onclick = () => { initSon(); ctx.resume(); clac(!pcAllume); forcePC = !pcAllume; };
+  $('zPC').onclick = () => { initSon(); ctx.resume(); clac(!pcAllume, 'pc'); forcePC = !pcAllume; };
   // ---- chauffage : en saison froide (du 1er octobre au 20 mars, inversé dans l'hémisphère sud) et quand l'occupant est levé, l'air chaud ondule au-dessus du radiateur.
   // Avec la météo en direct, la température du lieu décide : chauffage au-dessous de 15 °C.
   let chaleurNiv = 0, zoneChaud = null, forceChauffe = null, chauffeActif = false;
@@ -588,7 +600,7 @@ const D = {"public": true, "reflets": {"tv": {"uv": [[1, 1], [0, 1], [0, 0], [1,
   // ---- tasse : un clic et le café est chaud, un filet de vapeur monte ; un second clic et il est bu
   const cvS = document.createElement('canvas'); cvS.width = 180; cvS.height = 280; const cs = cvS.getContext('2d'), texS = gl.createTexture(); let cafe = false, vapeur = 0, volutes = [], tVap = -1;
   $('zTasse').onclick = () => { cafe = !cafe; };
-  $('zRadiateur').onclick = () => { initSon(); ctx.resume(); clac(!chauffeActif); forceChauffe = !chauffeActif; };
+  $('zRadiateur').onclick = () => { initSon(); ctx.resume(); clac(!chauffeActif, 'radiateur'); forceChauffe = !chauffeActif; };
   // Vapeur : trois minces rubans translucides qui montent en s'enroulant, chacun apparaissant et s'effaçant lentement à son rythme.
   // Ils s'éteignent bien avant les bords de leur zone de dessin, pour qu'on n'en devine jamais le cadre.
   const RUBANS = [0, 1, 2].map(k => ({ x: 90 + (k - 1)*7, k1: 4.2 + k*1.3, k2: 9 + k*2.1, w1: .55 + k*.17, w2: .9 + k*.23, ph: k*2.1, a: .26 - k*.05, r: .19 + k*.07 }));
@@ -608,7 +620,7 @@ const D = {"public": true, "reflets": {"tv": {"uv": [[1, 1], [0, 1], [0, 0], [1,
       gl.bindVertexArray(vaoQuad); gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.useProgram(pCalque); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(U(pCalque, 't'), 0);
       R.r.calques.forEach((rc, k) => { const c = C[rc.nom]; if (!c || rc.nom === e) return; const pp = c.poids + (rc.nom === 'ciel' ? 7*eclair + 9*soleilF : 0); if (pp <= .0005) return; gl.bindTexture(gl.TEXTURE_2D, R.tex[k]); gl.uniform3f(U(pCalque, 'poids'), rc.echelle*pp*c.teinte[0], rc.echelle*pp*c.teinte[1], rc.echelle*pp*c.teinte[2]); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); }); } }
   let forceLampe = null, lampeAllumee = false;          // clic sur la lampe : l'emporte sur l'automatisme jusqu'à ce que celui-ci soit du même avis
-  $('zLampe').onclick = () => { initSon(); ctx.resume(); clac(!lampeAllumee); forceLampe = !lampeAllumee; };
+  $('zLampe').onclick = () => { initSon(); ctx.resume(); clac(!lampeAllumee, 'lampe'); forceLampe = !lampeAllumee; };
 
   // ---- regard
   let cible = [0, 0]; var m = [0, 0]; const fixe = P.has('mx') || P.has('my');
