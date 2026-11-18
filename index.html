@@ -130,14 +130,15 @@ const D = {"public": true, "reflets": {"tv": {"uv": [[1, 1], [0, 1], [0, 0], [1,
       o = vec4((albedo*ndl*l*4.6 + .075*s/18.*min(z, 4.))*teinte*force, 0.); }`);
   // 2 : la vue est ramenée à la position de regard demandée (reprojection 3D par la profondeur)
   const pMaille = prog(`#version 300 es
-    in vec2 p; out vec2 uv; uniform sampler2D prof; uniform vec2 res, centre; uniform float fpx, zoom; uniform mat3 M; uniform vec3 T;
-    void main(){ uv = p; vec4 t16 = texelFetch(prof, ivec2(clamp(p*res, vec2(0.), res - 1.)), 0); float d = (t16.r*65280. + t16.g*255.)/65535.; float z = .2/max(d, .0005);
+    in vec2 p; out vec2 uv; out float vd; uniform sampler2D prof; uniform vec2 res, centre; uniform float fpx, zoom; uniform mat3 M; uniform vec3 T;
+    void main(){ uv = p; vec4 t16 = texelFetch(prof, ivec2(clamp(p*res, vec2(0.), res - 1.)), 0); float d = (t16.r*65280. + t16.g*255.)/65535.; float z = .2/max(d, .0005); vd = d;
       vec3 A = vec3((p.x*res.x - centre.x)/fpx*z, (centre.y - p.y*res.y)/fpx*z, z);
       vec3 Q = M*A + T; float zq = max(Q.z, .05);
       vec2 q = vec2(centre.x + fpx*Q.x/zq, centre.y - fpx*Q.y/zq)/res; q = (q-.5)*zoom+.5;
       gl_Position = vec4(q*2.-1., 1.-2.*clamp(.2/zq, 0., 1.), 1.); }`, `#version 300 es
-    precision highp float; in vec2 uv; out vec4 o; uniform sampler2D couleur;
-    void main(){ o = vec4(texture(couleur, uv).rgb, 1.); }`);
+    precision highp float; in vec2 uv; in float vd; out vec4 o; uniform sampler2D couleur;
+    void main(){ bool etire = fwidth(vd) > .004;          // triangle à cheval sur un saut de profondeur (bord d'un objet devant le fond) : il ne doit ni cacher un vrai morceau d'image ni compter dans le fondu
+      float k = etire ? .03 : 1.; o = vec4(texture(couleur, uv).rgb*k, k); gl_FragDepth = etire ? .9995 : gl_FragCoord.z; }`);
   // 3 : fondu des vues voisines
   const pAjoute = prog(VS, `#version 300 es
     precision highp float; in vec2 uvTampon; out vec4 o; uniform sampler2D t; uniform float w;
@@ -157,7 +158,7 @@ const D = {"public": true, "reflets": {"tv": {"uv": [[1, 1], [0, 1], [0, 0], [1,
       vec3 u = (clamp(log2(max(lin*expo, 1e-10)), ev0, ev1)-ev0)/(ev1-ev0);
       float b = u.b*(n-1.), b0 = min(floor(b), n-2.);
       o = vec4(mix(lire(u.r, u.g, b0), lire(u.r, u.g, b0+1.), b-b0), 1.); }`);
-  const NX = 334, NY = 188, gs = new Float32Array((NX+1)*(NY+1)*2), gi = new Uint32Array(NX*NY*6);
+  const NX = 501, NY = 282, gs = new Float32Array((NX+1)*(NY+1)*2), gi = new Uint32Array(NX*NY*6);
   for (let j = 0, k = 0; j <= NY; j++) for (let i = 0; i <= NX; i++) { gs[k++] = i/NX; gs[k++] = j/NY; }
   for (let j = 0, k = 0; j < NY; j++) for (let i = 0; i < NX; i++) { const a = j*(NX+1)+i, b = a+1, c = a+NX+1, d = c+1; gi.set([a, b, c, b, d, c], k); k += 6; }
   const vao = donnees => { const v = gl.createVertexArray(); gl.bindVertexArray(v); const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, donnees, gl.STATIC_DRAW);
