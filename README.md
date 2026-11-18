@@ -24,6 +24,7 @@ La page demande votre position pour régler le soleil et la météo. Si vous ref
 - Données météo : [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0).
 - Radio : flux en direct de webradios tierces (181.FM, 1.FM), lus depuis leurs serveurs.
 - Pluie et tonnerre : enregistrement fourni par l'auteur.
+- Ambiance de ville, interrupteurs et boutons : [BigSoundBank](https://bigsoundbank.com/) (Joseph Sardin), CC0.
 - Scène modélisée et rendue dans Blender, puis assemblée en une page unique.
 
 Ce dépôt ne contient que la page publiée. Les modèles et les scripts de fabrication n'en font pas partie.
